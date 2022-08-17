@@ -11,6 +11,7 @@
 #include "../header/threadpool.hpp"
 #include "../header/http_conn.h"
 #include <signal.h>
+#include "../header/log.h"
 
 #define MAX_FD 65535           // 最大文件描述符个数
 #define MAX_EVENT_NUMBER 10000 //最大事件数量
@@ -51,6 +52,10 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
+    log::Instance().init("./ServerLog", false, 2000, 800000, 800);
+    LOG_INFO("创建日志\n");
+
+
     //创建数组用于保存所有客户端信息
     http_conn *users = new http_conn[MAX_FD]; // 文件描述符作为索引
 
@@ -58,7 +63,7 @@ int main(int argc, char *argv[])
     int listenfd = socket(PF_INET, SOCK_STREAM, 0);
     if (listenfd < 0)
     {
-        perror("listenfd");
+        LOG_ERROR("listenfd");
         exit(-1);
     }
     //设置端口复用
@@ -73,7 +78,7 @@ int main(int argc, char *argv[])
     int ret = bind(listenfd, (struct sockaddr *)&address, sizeof(address));
     if (ret < 0)
     {
-        perror("bind");
+        LOG_ERROR("bind error");
         exit(-1);
     }
     //监听
@@ -93,19 +98,21 @@ int main(int argc, char *argv[])
         int num = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1);
         if ((num < 0) && (errno != EINTR))
         {
-            printf("epoll failure \n");
+            LOG_ERROR("epoll failure \n");
             break;
         }
         //循环遍历
         for (int i = 0; i < num; ++i)
         {
             int sockfd = events[i].data.fd;
+            char buf[16];
             if (sockfd == listenfd)
             {
                 //客户端连接
                 struct sockaddr_in client_address;
                 socklen_t client_len = sizeof(client_address);
                 int connfd = accept(listenfd, (struct sockaddr *)&client_address, &client_len);
+                inet_ntop(AF_INET,&client_address.sin_addr.s_addr,buf,sizeof(buf));
                 if (connfd < 0)
                 {
                     throw std::exception();
@@ -114,6 +121,8 @@ int main(int argc, char *argv[])
                 {
                     //目前连接数满了，
                     //给客户端写一个信息，服务器正忙。。。
+                    
+                    LOG_INFO("目前连接数满了,来自%s的链接忽略\n",buf);
                     close(connfd);
                     continue;
                 }
@@ -129,8 +138,8 @@ int main(int argc, char *argv[])
             {
                 if (users[sockfd].read())
                 {
-                    //读取数据
-                    
+                    LOG_INFO("读取,来自%s\n",buf);
+                    //printf("...............%s>>>>>>>>>>......\n",buf);
                     pool->append(users + sockfd);
                 }
                 else
